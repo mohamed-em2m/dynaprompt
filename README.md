@@ -1,8 +1,7 @@
-<!-- [![Dynaconf](docs/img/logo_400.svg?sanitize=true)](http://dynaconf.com) -->
 
-<p align="center"><img src="/art/header.png?v2" alt="dynaconf. new logo"></p>
+<p align="center"><img src="/art/dyna-prompt.png" alt="dyna-prompt. new logo"></p>
 
-> **dynaconf** - Configuration Management for Python.
+> **dyna-prompt** - Configuration Management for Python.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-007EC7.svg?style=flat-square)](/LICENSE) [![PyPI](https://img.shields.io/pypi/v/dynaconf.svg)](https://pypi.python.org/pypi/dynaconf) [![PyPI](https://img.shields.io/pypi/pyversions/dynaconf.svg)]() ![PyPI - Downloads](https://img.shields.io/pypi/dm/dynaconf.svg?label=pip%20installs&logo=python) [![CI](https://github.com/dynaconf/dynaconf/actions/workflows/main.yml/badge.svg)](https://github.com/dynaconf/dynaconf/actions/workflows/main.yml) [![codecov](https://codecov.io/gh/dynaconf/dynaconf/branch/master/graph/badge.svg)](https://codecov.io/gh/dynaconf/dynaconf) [![Codacy Badge](https://app.codacy.com/project/badge/Grade/3fb2de98464442f99a7663181803b400)](https://www.codacy.com/gh/dynaconf/dynaconf/dashboard?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=dynaconf/dynaconf&amp;utm_campaign=Badge_Grade)  ![GitHub stars](https://img.shields.io/github/stars/dynaconf/dynaconf.svg) ![GitHub Release Date](https://img.shields.io/github/release-date/dynaconf/dynaconf.svg) ![GitHub commits since latest release](https://img.shields.io/github/commits-since/dynaconf/dynaconf/latest.svg) ![GitHub last commit](https://img.shields.io/github/last-commit/dynaconf/dynaconf.svg) [![Code Style Black](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
