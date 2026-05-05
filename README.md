@@ -1,9 +1,9 @@
-<p align="center"><img src="/art/dyna-prompt.png" alt="dyna-prompt logo"></p>
+<p align="center"><img src="/art/dynaprompt .png" alt="dynaprompt  logo"></p>
 
-> **dyna-prompt** - Lazy-loading prompt configuration manager built directly on Dynaconf's principles.
+> **dynaprompt ** - Lazy-loading prompt configuration manager built directly on Dynaconf's principles.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-007EC7.svg?style=flat-square)](/LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/dyna-prompt.svg)](https://pypi.python.org/pypi/dyna-prompt)
+[![PyPI](https://img.shields.io/pypi/v/dynaprompt .svg)](https://pypi.python.org/pypi/dynaprompt )
 [![Code Style Black](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Coverage](https://img.shields.io/badge/coverage-71%25-green.svg)](/tests)
 
@@ -12,7 +12,7 @@ DynaPrompt is a powerful, lazy-loading prompt configuration manager inspired by 
 ## 🚀 30-Second Quickstart
 
 ```bash
-pip install dyna-prompt
+pip install dynaprompt
 ```
 
 1. Create a `prompts.toml`:

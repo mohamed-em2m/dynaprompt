@@ -107,6 +107,13 @@ class PromptNode:
         self._overrides: dict[str, Any] = {}
         self.bound_kwargs: dict[str, Any] = {}
 
+        # ── Pre-compile Jinja2 template ───────────────────────────────────────
+        jinja_env = jinja2.Environment(undefined=jinja2.Undefined)
+        template_str = self.text
+        if self._parent_template and "{{ super() }}" in template_str:
+            template_str = template_str.replace("{{ super() }}", self._parent_template)
+        self._compiled_template = jinja_env.from_string(template_str)
+
         if self._auto_render:
             context = self._build_render_context()
             jinja_env = jinja2.Environment(undefined=jinja2.DebugUndefined)
@@ -163,30 +170,51 @@ class PromptNode:
         if self.response_schema:
             context["response_schema"] = self.schema_json
 
-        # Auto-serialize Pydantic models (classes or instances) to JSON
+        # Auto-serialize Pydantic models (classes or instances) to JSON/dict
         import inspect
         import json
+
+        def _deep_process(obj, key_name=""):
+            # 1. Pydantic Classes (Schemas) -> JSON String
+            if inspect.isclass(obj):
+                if hasattr(obj, "model_json_schema"):
+                    return json.dumps(obj.model_json_schema(), indent=2)
+                if hasattr(obj, "schema"):
+                    return json.dumps(obj.schema(), indent=2)
+                return obj
+
+            # 2. Pydantic Instances -> Dict (for template access) or JSON
+            # (if key suggests)
+            if hasattr(obj, "model_dump"):  # Pydantic v2
+                if "json" in key_name.lower() or "schema" in key_name.lower():
+                    return obj.model_dump_json(indent=2)
+                return obj.model_dump()
+            if hasattr(obj, "dict") and callable(obj.dict):  # Pydantic v1
+                if "json" in key_name.lower() or "schema" in key_name.lower():
+                    return obj.json(indent=2)
+                return obj.dict()
+
+            # 3. Recursive containers
+            if isinstance(obj, dict):
+                return {k: _deep_process(v, k) for k, v in obj.items()}
+            if isinstance(obj, list):
+                return [_deep_process(v, key_name) for v in obj]
+
+            # 4. Standard JSON fallback for dict/list if key suggests
+            if isinstance(obj, (dict, list)) and (
+                "schema" in key_name.lower() or "json" in key_name.lower()
+            ):
+                try:
+                    return json.dumps(obj, indent=2)
+                except Exception:
+                    return obj
+
+            return obj
 
         for k, v in list(context.items()):
             if k in ("secrets", "env", "today", "current_env"):
                 continue
-            if inspect.isclass(v):
-                if hasattr(v, "model_json_schema"):
-                    context[k] = json.dumps(v.model_json_schema(), indent=2)
-                elif hasattr(v, "schema"):
-                    context[k] = json.dumps(v.schema(), indent=2)
-            else:
-                try:
-                    if hasattr(v, "model_dump_json"):
-                        context[k] = v.model_dump_json(indent=2)
-                    elif hasattr(v, "json") and callable(v.json):
-                        context[k] = v.json(indent=2)
-                    elif isinstance(v, (dict, list)) and (
-                        "schema" in k.lower() or "json" in k.lower()
-                    ):
-                        context[k] = json.dumps(v, indent=2)
-                except Exception:
-                    pass
+            context[k] = _deep_process(v, k)
 
         return context
 
@@ -208,15 +236,33 @@ class PromptNode:
         self.response_schema = schema
         return self
 
+    def copy(self) -> PromptNode:
+        """Return a fresh copy of this node to avoid cross-request state pollution."""
+        import copy
+
+        new_node = copy.copy(self)
+        # Deep copy the mutable state containers
+        new_node._overrides = self._overrides.copy()
+        new_node.bound_kwargs = self.bound_kwargs.copy()
+        return new_node
+
     # ─── Rendering ────────────────────────────────────────────────────────────
 
     @hookable
-    def render(self, **kwargs) -> RenderedPrompt:
+    def render(self, *args, **kwargs) -> RenderedPrompt:
         """
         Render the prompt template with the provided variables.
         Runs validators → Jinja2 → after_render hooks.
-        Maintains state of previously passed kwargs in `self.bound_kwargs`.
+
+        Args:
+            *args: Optional positional dictionaries to be merged into the context.
+            **kwargs: Template variables.
         """
+        # Merge positional dicts into kwargs
+        for arg in args:
+            if isinstance(arg, dict):
+                kwargs.update(arg)
+
         self.bound_kwargs.update(kwargs)
 
         # 1. Run validators (raises ValidationError on failure)
@@ -224,18 +270,12 @@ class PromptNode:
             self, self.bound_kwargs, current_env=self._current_env
         )
 
-        # 2. Resolve inheritance: replace {{ super() }} before Jinja2
-        template_str = self.text
-        if self._parent_template and "{{ super() }}" in template_str:
-            template_str = template_str.replace("{{ super() }}", self._parent_template)
-
         # 3. Build Jinja2 rendering context
         context = self._build_render_context(self.bound_kwargs)
 
-        # 4. Render via Jinja2
-        jinja_env = jinja2.Environment(undefined=jinja2.Undefined)
+        # 4. Render via pre-compiled template
         try:
-            rendered_text = jinja_env.from_string(template_str).render(**context)
+            rendered_text = self._compiled_template.render(**context)
         except Exception as exc:
             raise RuntimeError(f"Failed to render prompt '{self.name}': {exc}") from exc
 
@@ -258,15 +298,11 @@ class PromptNode:
     def invoke(self, **kwargs):
         """
         Render and (in the future) call an LLM provider directly.
-        Currently returns the RenderedPrompt; LLM execution is a future feature.
         """
-        rendered = self.render(**kwargs)
-        model = rendered.config.get("model", "unknown-model")
-        # Placeholder — future: dispatch to openai/anthropic/gemini
-        print(
-            f"[DynaPrompt] Would invoke '{model}' with prompt: {rendered.text[:60]}..."
+        raise NotImplementedError(
+            "LLM invocation not yet implemented — use render() and call your "
+            "LLM client directly."
         )
-        return rendered
 
     def __repr__(self) -> str:
         preview = self.text[:60].replace("\n", " ")

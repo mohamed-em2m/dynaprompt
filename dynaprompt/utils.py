@@ -19,6 +19,30 @@ def object_merge(base: dict, override: dict) -> None:
             base[key] = value
 
 
+def sanitize_name(stem: str) -> str:
+    """Normalize a filename stem to a valid, snake_case prompt identifier.
+
+    Examples::
+
+        "Customer Support"  -> "customer_support"
+        "call-analysis"     -> "call_analysis"
+        "01_intro"          -> "p_01_intro"
+        ""                  -> "prompt"
+    """
+    import re
+
+    name = stem.lower()
+    # Replace any run of non-alphanumeric chars with a single underscore
+    name = re.sub(r"[^a-z0-9]+", "_", name)
+    name = name.strip("_")
+    if not name:
+        return "prompt"
+    # Identifiers must not start with a digit
+    if name[0].isdigit():
+        name = f"p_{name}"
+    return name
+
+
 def inspect_prompts(
     prompts,
     key: str | None = None,
