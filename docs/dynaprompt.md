@@ -1,48 +1,89 @@
 # DynaPrompt Documentation
 
-DynaPrompt is an LLM prompt management library built on the core principles of Dynaconf. It helps you separate prompt logic from your application code.
+DynaPrompt is a powerful, lazy-loading prompt management and configuration library for LLM applications. Built on the core principles of **Dynaconf**, it provides a structured, enterprise-grade way to separate prompt logic from your application code.
 
-## Core Concepts
+## 🧠 Core Philosophy: Lazy Loading
+Unlike many prompt libraries that load templates at import time, DynaPrompt is **lazy by design**.
+- **Zero I/O at Start**: Creating a `DynaPrompt` object does not read any files.
+- **On-Demand Resolution**: Files are only read, parsed, and merged the first time you access a prompt.
+- **Environment Aware**: Seamlessly switch between `development`, `staging`, and `production` prompts without reloading your app.
 
-### 1. The DynaPrompt Object
-The main entry point. It handles lazy loading, environment switching, and provides access to all your prompts and schemas as attributes.
+---
+
+## 🛠 Getting Started
+
+### 1. Initialization
+The `DynaPrompt` object is your main entry point. It handles discovery and registry.
 
 ```python
 from dynaprompt import DynaPrompt
-prompts = DynaPrompt(settings_files=["prompts/"])
+
+# Scans directories recursively for .md, .toml, .py, .json
+prompts = DynaPrompt(settings_files=["prompts/", "config/vars.json"])
 ```
 
-### 2. Prompt Storage
-Prompts can be stored in two main ways:
+### 2. Flexible Storage
+DynaPrompt supports multiple formats to suit different workflows:
 
-- **Markdown Files (`.md` / `.txt`)**: Best for long templates. Use YAML frontmatter for metadata.
-- **TOML Files (`.toml`)**: Best for grouping multiple small prompts or managing configuration overrides.
+- **Markdown (`.md` / `.txt`)**: Ideal for complex templates. Use YAML frontmatter for metadata (model, temperature, etc.).
+- **TOML (`.toml`)**: Best for grouping multiple small prompts or defining environment-specific overrides.
+- **Python (`.py`)**: Define schemas (Pydantic) or plain variables.
+- **JSON/YAML**: For structured data and shared variables.
 
-### 3. Automatic Schema Loading
-DynaPrompt automatically scans your `settings_files` for schemas:
+### 3. Recursive Directory Scanning
+When you point DynaPrompt to a directory, it recursively scans for all supported files and builds a nested namespace reflecting the folder structure.
 
-- **Python (`.py`)**: Imports the file and registers all defined classes. This is designed for **Pydantic** models.
-- **JSON (`.json`)**: Loads the file and registers the JSON structure under the filename.
+```bash
+prompts/
+  ├── auth/
+  │   └── login.md
+  └── support/
+      └── chat.toml
+```
+Access them as: `prompts.auth.login` or `prompts.support.chat`.
 
-Registered schemas can be referenced by name in your prompt frontmatter or accessed directly:
+---
+
+## 🚀 Key Features
+
+### 📤 Auto-Exporting (pyprompts.toml)
+DynaPrompt can automatically generate a central configuration file representing your entire loaded structure. This is perfect for allowing non-technical users to override templates without touching the code.
+
 ```python
-schema = prompts.MyPydanticModel
+prompts = DynaPrompt(settings_files=["prompts/"], auto_export=True)
 ```
 
-## Advanced Features
-
-### Environment Layering
-Just like Dynaconf, DynaPrompt supports environments. You can override prompt metadata (like which model to use) per environment without changing the template.
+### 📦 Automatic Schema Integration
+Register Pydantic models automatically from `.py` files. These can then be used for response validation or injected directly into templates as JSON schemas.
 
 ```python
-with prompts.using_env("production"):
-    rendered = prompts.my_prompt.render(...)
+# Referenced in prompt.md frontmatter:
+# response_schema: UserProfile
+rendered = prompts.my_prompt.render(user_id=123)
+print(rendered.response_schema) # The UserProfile class
 ```
 
-### Hooks
-Intercept the prompt lifecycle:
-- `before_render`: Modify inputs.
-- `after_render`: Redact sensitive info or log outputs.
+### 🪝 Powerful Hooks & Validation
+Intercept the rendering process at any point:
+- **Redact** PII before rendering.
+- **Validate** that the output doesn't exceed a token limit.
+- **Log** specific rendering events for audit trails.
 
-### Validation
-Register validators to ensure that rendered prompts meet certain criteria (e.g., token limits, specific keywords).
+---
+
+## 🎨 Advanced Rendering
+DynaPrompt supports a fluent API for quick overrides:
+
+```python
+prompt = prompts.chat_bot \
+    .with_model("gpt-4o") \
+    .with_temperature(0.7) \
+    .render(user_message="Hello!")
+```
+
+It also supports **partial rerendering**, where it remembers previous variables:
+```python
+p1 = prompts.translate.render(text="Hello", lang="ES")
+# Only update the text, 'lang' is preserved from p1
+p2 = prompts.translate.rerender(text="Goodbye")
+```

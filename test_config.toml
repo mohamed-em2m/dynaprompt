@@ -1,9 +1,0 @@
-
-[default.my_external_prompt]
-template = "test_external_template.md"
-variables = "test_vars.json"
-
-[default.my_dict_prompt]
-template = "test_external_template.md"
-[default.my_dict_prompt.variables]
-external_var = "world from dict"

@@ -1,18 +1,33 @@
 <p align="center"><img src="https://raw.githubusercontent.com/mohamed-em2m/dynaprompt/main/art/dynaprompt.png" alt="dynaprompt logo"></p>
 
-> **dynaprompt** - Lazy-loading prompt configuration manager built directly on Dynaconf's principles.
+> **dynaprompt** - Dynamic prompt management and configuration library for LLM applications. Powerful, lazy-loading, and supports Jinja2 templates and Pydantic schemas.
 
 [![MIT License](https://img.shields.io/badge/license-MIT-007EC7.svg?style=flat-square)](https://github.com/mohamed-em2m/dynaprompt/blob/main/LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/dynaprompt.svg)](https://pypi.python.org/pypi/dynaprompt)
+[![PyPI](https://img.shields.io/pypi/v/dynaprompt.svg)](https://pypi.org/pypi/dynaprompt)
 [![Code Style Black](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 [![Coverage](https://img.shields.io/badge/coverage-75%25-green.svg)](https://github.com/mohamed-em2m/dynaprompt/tree/main/tests)
 
-DynaPrompt is a powerful, lazy-loading prompt configuration manager inspired by Dynaconf. It offers a structured way to manage, version, and render LLM prompts while separating prompt text from configuration metadata.
+DynaPrompt is a powerful, lazy-loading prompt configuration manager inspired by **Dynaconf**. It offers a structured way to manage, version, and render LLM prompts while keeping your templates separate from your application logic.
+
+---
+
+<p align="center">
+  <a href="#✨-features">Features</a> •
+  <a href="#💡-why-dynaprompt">Why DynaPrompt?</a> •
+  <a href="#🛠-usage">Usage</a> •
+  <a href="#🔍-inspection">Inspection</a>
+</p>
+
+---
 
 ## 🚀 30-Second Quickstart
 
 ```bash
+# Using pip
 pip install dynaprompt
+
+# Using uv (recommended)
+uv add dynaprompt
 ```
 
 1. Create a `prompts.toml`:
@@ -73,10 +88,15 @@ Since Dynaconf handles strings, why a new library? DynaPrompt adds **prompt-spec
 ---
 
 ## ✨ Features
-- **File-based Prompt Management**: Write prompt templates in clean Markdown (`.md` or `.txt`) with YAML frontmatter, or group multiple prompts in a `prompts.toml` file.
-- **Auto-Discovery & Companion Files**: Pass a directory like `settings_files=["prompts/"]` and DynaPrompt automatically loads all `.md` files. It also auto-discovers a sibling `prompts.toml` for managing metadata separately.
-- **Automatic Name Sanitization**: Filenames like `Call Analysis.md` become `prompts.call_analysis`.
-- **Validation & Hooks**: Enforce constraints on rendered prompts and intercept rendering with a powerful hook system.
+
+- **📂 File-based Management**: Write templates in clean Markdown (`.md`) with YAML frontmatter or group multiple prompts in a `prompts.toml`.
+- **🏗️ Recursive Auto-Discovery**: Pass a directory like `settings_files=["prompts/"]` and DynaPrompt builds a nested namespace reflecting your folder structure.
+- **⚡ Lazy Loading**: Zero I/O at import. Files are only read when a prompt is actually accessed.
+- **🌍 Environment Layering**: Native support for `development`, `production`, etc. Override metadata per environment without touching the template.
+- **🔧 Schema Auto-discovery**: Automatically registers **Pydantic** models, TypedDicts, and JSON schemas from your settings directories.
+- **🧩 Jinja2 First-Class**: Supports recursive variable flattening, auto-rendering, and complex logic inside templates.
+- **📤 Auto-Export**: Mirror your entire prompt structure to a central TOML file for easy external overrides.
+- **🛡️ Validation & Hooks**: Enforce constraints on rendered output and intercept rendering with a powerful hook system.
 
 ## 🛠 Usage
 

@@ -1,1 +1,0 @@
-Hello {{ external_var }}
