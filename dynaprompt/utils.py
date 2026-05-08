@@ -95,3 +95,55 @@ def inspect_prompts(
             json.dump(report, f, indent=2, default=str)
 
     return report
+
+
+def export_to_toml(prompts_instance, filepath: str = "pyprompts.toml") -> None:
+    """Export the loaded prompt structure to a TOML file for user customization."""
+    if prompts_instance._wrapped is None:
+        prompts_instance._setup()
+
+    raw_data = prompts_instance._wrapped._raw_data
+    lines = [
+        "# Auto-generated DynaPrompt structure",
+        "# You can modify this file to override prompt templates and settings",
+        "",
+    ]
+
+    def format_value(v):
+        if isinstance(v, str):
+            v = v.replace("\\", "\\\\").replace('"', '\\"')
+            if "\n" in v:
+                return f'"""\n{v}\n"""'
+            return f'"{v}"'
+        elif isinstance(v, bool):
+            return str(v).lower()
+        elif isinstance(v, (int, float)):
+            return str(v)
+        elif isinstance(v, list):
+            items = ", ".join(format_value(i) for i in v)
+            return f"[{items}]"
+        elif v is None:
+            return '""'
+        else:
+            v_str = str(v).replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{v_str}"'
+
+    for env, prompts in raw_data.items():
+        for name, data in prompts.items():
+            section_name = f"{env}.{name}"
+            lines.append(f"[{section_name}]")
+            for k, v in data.items():
+                if k.startswith("_"):
+                    continue
+                if isinstance(v, dict):
+                    # Simplistic inline table
+                    items = ", ".join(
+                        f'"{ik}" = {format_value(iv)}' for ik, iv in v.items()
+                    )
+                    lines.append(f"{k} = {{ {items} }}")
+                else:
+                    lines.append(f"{k} = {format_value(v)}")
+            lines.append("")
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))

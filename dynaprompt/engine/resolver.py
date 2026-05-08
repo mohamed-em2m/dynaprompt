@@ -35,11 +35,16 @@ class FileResolver:
         results: list[tuple[pathlib.Path, str]] = []
         seen_names: dict[str, pathlib.Path] = {}
 
-        for child in sorted(directory.iterdir()):
+        for child in sorted(directory.rglob("*")):
+            if not child.is_file():
+                continue
             if child.suffix not in supported_suffixes:
                 continue
 
-            stem = child.stem
+            rel_path = child.relative_to(directory)
+            parts = rel_path.with_suffix("").parts
+            stem = ".".join(parts)
+
             if self.file_prefix:
                 if not stem.startswith(self.file_prefix):
                     continue
@@ -47,7 +52,7 @@ class FileResolver:
 
             from ..utils import sanitize_name
 
-            sanitized = sanitize_name(stem)
+            sanitized = ".".join(sanitize_name(part) for part in parts)
 
             if sanitized in seen_names:
                 i = 2

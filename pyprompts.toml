@@ -1,0 +1,6 @@
+# Auto-generated DynaPrompt structure
+# You can modify this file to override prompt templates and settings
+
+[default.google.gemini]
+template = "Hello {{ name }}!"
+model = "test"

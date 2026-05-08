@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dynaprompt"
-version = "0.1.0"
+version = "0.1.2"
 description = "A powerful, lazy-loading prompt configuration manager."
 readme = "README.md"
 requires-python = ">=3.9"

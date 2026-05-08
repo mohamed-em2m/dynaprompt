@@ -10,8 +10,6 @@ class UserProfile(BaseModel):
 
 def test_render_with_positional_dict():
     # Setup a dummy prompt
-    # Manually register a prompt for testing
-
     node = PromptNode(name="test", text="Hello {{ name }}! You are {{ age }}.")
 
     # Test rendering with a positional dict

@@ -1,0 +1,4 @@
+---
+model: test
+---
+Hello {{ name }}!

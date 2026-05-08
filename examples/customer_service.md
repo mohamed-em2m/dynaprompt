@@ -10,5 +10,5 @@ Please provide a helpful and friendly response to the customer's inquiry.
 
 ## Schema
 ```json
-{{schema}}
+{{MediaBuyerSchema}}
 ```

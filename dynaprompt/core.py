@@ -27,6 +27,42 @@ from .validator import PromptValidator, ValidatorList
 _SUPPORTED_SUFFIXES = (".toml", ".md", ".txt", ".py", ".json", ".yaml", ".yml")
 
 
+class PromptNamespace:
+    """Provides dot-notation access to nested prompts."""
+
+    def __init__(self, prefix: str, prompts_instance: DynaPrompt):
+        self._prefix = prefix
+        self._prompts = prompts_instance
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+
+        full_name = f"{self._prefix}.{name}"
+
+        # Try to get it as a direct prompt
+        try:
+            return self._prompts._wrapped.get(full_name)
+        except AttributeError:
+            pass
+
+        # Check if it's a further nested namespace
+        prefix_dot = f"{full_name}."
+        if any(k.startswith(prefix_dot) for k in self._prompts._wrapped._store):
+            return PromptNamespace(full_name, self._prompts)
+
+        raise AttributeError(f"Namespace '{self._prefix}' has no attribute '{name}'")
+
+    def __dir__(self) -> list[str]:
+        prefix_dot = f"{self._prefix}."
+        keys = set()
+        for k in self._prompts._wrapped._store:
+            if k.startswith(prefix_dot):
+                sub = k[len(prefix_dot) :].split(".")[0]
+                keys.add(sub)
+        return sorted(list(keys) + super().__dir__())
+
+
 class _PromptSettings:
     """
     The real settings object. Orchestrates FileResolver, VariableRegistry,
@@ -217,12 +253,14 @@ class DynaPrompt:
         file_prefix: str | None = None,
         variables: list[Any] | None = None,
         auto_render: bool = False,
+        auto_export: str | bool = False,
     ):
         self._settings_files = settings_files
         self._environments = environments
         self._env = env or os.environ.get("ENV_FOR_DYNAPROMPT", "development")
         self._file_prefix = file_prefix
         self._auto_render = auto_render
+        self._auto_export = auto_export
         self._validators = ValidatorList()
         if validators:
             self._validators.extend(validators)
@@ -243,6 +281,20 @@ class DynaPrompt:
         self._wrapped._validators = self._validators
         self._wrapped._hooks = self._hooks
 
+        if self._auto_export:
+            filepath = (
+                "pyprompts.toml"
+                if isinstance(self._auto_export, bool)
+                else self._auto_export
+            )
+            self.export_to_toml(filepath)
+
+    def export_to_toml(self, filepath: str = "pyprompts.toml") -> None:
+        """Export the loaded prompt structure to a TOML file."""
+        from .utils import export_to_toml
+
+        export_to_toml(self, filepath)
+
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)
@@ -257,6 +309,11 @@ class DynaPrompt:
         if name in self.schemas:
             return self.schemas[name]
 
+        # Check if it's a nested namespace
+        prefix_dot = f"{name}."
+        if any(k.startswith(prefix_dot) for k in self._wrapped._store):
+            return PromptNamespace(name, self)
+
         raise AttributeError(
             f"'{self.__class__.__name__}' object has no attribute '{name}'."
         )
@@ -265,9 +322,14 @@ class DynaPrompt:
         if self._wrapped is None:
             self._setup()
         std_attrs = super().__dir__()
-        prompts = list(self._wrapped._store._store.keys())
+
+        # Only include top-level prompts and namespaces
+        top_level_keys = set()
+        for k in self._wrapped._store.keys():
+            top_level_keys.add(k.split(".")[0])
+
         schemas = list(self.schemas.keys())
-        return sorted(set(std_attrs + prompts + schemas))
+        return sorted(set(std_attrs + list(top_level_keys) + schemas))
 
     def get(self, name: str) -> PromptNode:
         return self.__getattr__(name)
