@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.0] - 2026-05-10
+
+### Added
+- **Async Support**: Introduced `async_render()` and `async_rerender()` for non-blocking I/O in FastAPI/Async applications.
+- **Async Hooks**: Added `@async_hookable` decorator to support asynchronous lifecycle hooks.
+- **Prompt Hashing**: Every `RenderedPrompt` now includes a `prompt_hash` for audit logs and LangSmith/LangChain observability.
+- **Debug Trace**: New `prompts.debug_trace("key")` method to visualize the "merge" hierarchy and identify which environment/file provided specific values.
+- **Python Variable Templates**: Templates can now be extracted directly from Python files using the `template = "file.py:variable"` syntax.
+
+### Fixed
+- **Dotted TOML Headers**: Fixed a bug where nested TOML headers (e.g., `[default.gemini.analyzer]`) were parsed as nested dictionaries instead of flat prompt namespaces.
+- **Missing File Alerts**: Added explicit `UserWarning` when a requested settings file in `settings_files` does not exist on the filesystem.
+
+### Changed
+- **README Overhaul**: Completely redesigned the README with side-by-side comparisons ("Before/After"), YAML Frontmatter guides, and advanced examples for hooks/validators.
+- **Jinja2 Environment**: Enabled `enable_async=True` globally in the Jinja2 environment to allow transparent support for both sync and async rendering.
+
+
 ## [0.2.0] - 2026-05-08
 
 ### Added
