@@ -85,6 +85,23 @@ class TestTomlLoading:
         rendered = dp.greet.render(name="Path")
         assert "Hello Path" in rendered.text
 
+    def test_toml_template_python_resolution(self, tmp_path):
+        """Test that 'template = file.py:variable' extracts the python variable."""
+        py_path = tmp_path / "my_prompts.py"
+        py_path.write_text(
+            'my_string = "Hello {{ name }} from Python!"', encoding="utf-8"
+        )
+
+        toml_path = tmp_path / "prompts.toml"
+        toml_path.write_text(
+            f'[default.greet]\ntemplate = "./{py_path.name}:my_string"\n',
+            encoding="utf-8",
+        )
+
+        dp = DynaPrompt(settings_files=[str(toml_path)])
+        rendered = dp.greet.render(name="World")
+        assert rendered.text == "Hello World from Python!"
+
 
 class TestDirectoryLoading:
     def test_loads_from_directory(self, prompts_dir):

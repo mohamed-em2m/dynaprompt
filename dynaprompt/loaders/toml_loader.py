@@ -121,6 +121,30 @@ class TomlLoader(PromptLoader):
 
         resolved, _attr = resolve_path_spec(value, base_dir=base_dir)
         if resolved is not None:
+            if _attr and resolved.suffix == ".py":
+                import importlib.util
+                import sys
+
+                spec_mod = importlib.util.spec_from_file_location(
+                    resolved.stem, resolved
+                )
+                if spec_mod and spec_mod.loader:
+                    mod = importlib.util.module_from_spec(spec_mod)
+                    sys.path.insert(0, str(resolved.parent))
+                    try:
+                        spec_mod.loader.exec_module(mod)
+                        obj = mod
+                        for part in _attr.split("."):
+                            obj = getattr(obj, part, None)
+                            if obj is None:
+                                break
+                        if isinstance(obj, str):
+                            return obj
+                    except Exception:
+                        pass
+                    finally:
+                        sys.path.pop(0)
+
             try:
                 return resolved.read_text(encoding="utf-8")
             except Exception:
