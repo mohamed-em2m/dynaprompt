@@ -37,7 +37,7 @@ class FileResolver:
         seen_names: dict[str, pathlib.Path] = {}
 
         for child in sorted(directory.rglob("*")):
-            if not child.is_file():
+            if not child.is_file() or child.name == "__init__.py":
                 continue
             if child.suffix not in supported_suffixes:
                 continue
