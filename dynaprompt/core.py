@@ -387,3 +387,42 @@ class DynaPrompt:
         if self._wrapped is None:
             self._setup()
         return self._wrapped.get_history(name)
+
+    def debug_trace(self, name: str) -> None:
+        """
+        Prints a visual hierarchy of overrides for a specific prompt.
+        Helps trace exactly which environment or file provided which values.
+        """
+        history = self.inspect(name)
+        if not history:
+            print(f"No trace history found for prompt '{name}'.")
+            return
+
+        print(f"\n🔍 Debug Trace: '{name}'")
+        print("=" * 50)
+
+        for i, entry in enumerate(history):
+            env = entry.get("env", "default").upper()
+            loader = entry.get("loader", "unknown")
+            identifier = entry.get("identifier", "")
+            value = entry.get("value", {})
+
+            print(f"📦 [{env}] Loaded via {loader}")
+            print(f"   Source: {identifier}")
+
+            if not value:
+                print("   └─ (Empty)\n")
+                continue
+
+            # Format the dictionary nicely
+            import json
+
+            val_str = json.dumps(value, indent=2, default=str)
+            lines = val_str.splitlines()
+            for j, line in enumerate(lines):
+                prefix = "   └─ " if j == len(lines) - 1 else "   ├─ "
+                if j == 0 or j == len(lines) - 1:
+                    if line.strip() in ("{", "}"):
+                        continue  # Skip bare braces for cleaner look
+                print(f"{prefix}{line}")
+            print()

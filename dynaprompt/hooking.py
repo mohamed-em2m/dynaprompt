@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable
@@ -91,6 +92,61 @@ def hookable(function=None, name: str = None):
         @wraps(fn)
         def wrapper(*args, **kwargs):
             return dispatch(fn, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+def async_hookable(function=None, name: str = None):
+
+    async def dispatch(fun, self, *args, **kwargs):
+        hooks: dict = getattr(self, "_hooks", {})
+        fn_name = name or fun.__name__
+        obj_name = getattr(self, "name", None)
+
+        before_hooks = list(hooks.get(f"before_{fn_name}", []))
+        after_hooks = list(hooks.get(f"after_{fn_name}", []))
+
+        if obj_name:
+            before_hooks.extend(hooks.get(f"before_{fn_name}_{obj_name}", []))
+            after_hooks.extend(hooks.get(f"after_{fn_name}_{obj_name}", []))
+
+        if not before_hooks and not after_hooks:
+            return await fun(self, *args, **kwargs)
+
+        value = HookValue(None)
+        for hook in before_hooks:
+            func = hook.function if hasattr(hook, "function") else hook
+            res = func(self, value.value, *args, **kwargs)
+            if asyncio.iscoroutine(res):
+                res = await res
+            value = HookValue(res)
+
+        result = await fun(self, *args, **kwargs)
+        value = HookValue(result)
+
+        for hook in after_hooks:
+            func = hook.function if hasattr(hook, "function") else hook
+            res = func(self, value.value, *args, **kwargs)
+            if asyncio.iscoroutine(res):
+                res = await res
+            value = HookValue(res)
+
+        return value.value
+
+    if function:
+
+        @wraps(function)
+        async def wrapper(*args, **kwargs):
+            return await dispatch(function, *args, **kwargs)
+
+        return wrapper
+
+    def decorator(fn):
+        @wraps(fn)
+        async def wrapper(*args, **kwargs):
+            return await dispatch(fn, *args, **kwargs)
 
         return wrapper
 

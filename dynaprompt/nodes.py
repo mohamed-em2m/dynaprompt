@@ -43,6 +43,7 @@ class RenderedPrompt:
     config: dict[str, Any]
     response_schema: type[BaseModel] | None = None
     source_history: list[tuple] = field(default_factory=list)
+    prompt_hash: str = ""
 
     def __str__(self) -> str:
         return self.text
@@ -108,7 +109,7 @@ class PromptNode:
         self.bound_kwargs: dict[str, Any] = {}
 
         # ── Pre-compile Jinja2 template ───────────────────────────────────────
-        jinja_env = jinja2.Environment(undefined=jinja2.Undefined)
+        jinja_env = jinja2.Environment(undefined=jinja2.Undefined, enable_async=True)
         template_str = self.text
         if self._parent_template and "{{ super() }}" in template_str:
             template_str = template_str.replace("{{ super() }}", self._parent_template)
@@ -248,44 +249,83 @@ class PromptNode:
 
     # ─── Rendering ────────────────────────────────────────────────────────────
 
+    def _compute_hash(self, text: str, config: dict) -> str:
+        """Computes a stable hash for the rendered prompt."""
+        import hashlib
+
+        hash_input = f"{text}:{config}:{self.schema_json}".encode()
+        return hashlib.sha256(hash_input).hexdigest()[:12]
+
     @hookable
     def render(self, *args, **kwargs) -> RenderedPrompt:
         """
         Render the prompt template with the provided variables.
         Runs validators → Jinja2 → after_render hooks.
-
-        Args:
-            *args: Optional positional dictionaries to be merged into the context.
-            **kwargs: Template variables.
         """
-        # Merge positional dicts into kwargs
         for arg in args:
             if isinstance(arg, dict):
                 kwargs.update(arg)
 
         self.bound_kwargs.update(kwargs)
 
-        # 1. Run validators (raises ValidationError on failure)
         self._validators.validate(
             self, self.bound_kwargs, current_env=self._current_env
         )
 
-        # 3. Build Jinja2 rendering context
         context = self._build_render_context(self.bound_kwargs)
 
-        # 4. Render via pre-compiled template
         try:
             rendered_text = self._compiled_template.render(**context)
         except Exception as exc:
             raise RuntimeError(f"Failed to render prompt '{self.name}': {exc}") from exc
 
-        # 5. Run after_render hooks (can mutate the RenderedPrompt object) via @hookable
         final_config = {**self.metadata, **self._overrides}
+        p_hash = self._compute_hash(rendered_text, final_config)
+
         return RenderedPrompt(
             text=rendered_text,
             config=final_config,
             response_schema=self.response_schema,
             source_history=self._history,
+            prompt_hash=p_hash,
+        )
+
+    from .hooking import async_hookable
+
+    @async_hookable
+    async def async_render(self, *args, **kwargs) -> RenderedPrompt:
+        """
+        Asynchronously render the prompt template (I/O non-blocking).
+        Runs validators → Jinja2 async → after_render hooks.
+        """
+        for arg in args:
+            if isinstance(arg, dict):
+                kwargs.update(arg)
+
+        self.bound_kwargs.update(kwargs)
+
+        self._validators.validate(
+            self, self.bound_kwargs, current_env=self._current_env
+        )
+
+        context = self._build_render_context(self.bound_kwargs)
+
+        try:
+            rendered_text = await self._compiled_template.render_async(**context)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to async-render prompt '{self.name}': {exc}"
+            ) from exc
+
+        final_config = {**self.metadata, **self._overrides}
+        p_hash = self._compute_hash(rendered_text, final_config)
+
+        return RenderedPrompt(
+            text=rendered_text,
+            config=final_config,
+            response_schema=self.response_schema,
+            source_history=self._history,
+            prompt_hash=p_hash,
         )
 
     def rerender(self, **kwargs) -> RenderedPrompt:
@@ -295,7 +335,9 @@ class PromptNode:
         """
         return self.render(**kwargs)
 
-    def invoke(self, **kwargs):
+    async def async_rerender(self, **kwargs) -> RenderedPrompt:
+        """Async alias for rerender()."""
+        return await self.async_render(**kwargs)
         """
         Render and (in the future) call an LLM provider directly.
         """
