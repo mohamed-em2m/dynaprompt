@@ -163,7 +163,7 @@ class TestCollisionHandling:
             dp.inspect()
 
     def test_missing_file_warns(self, toml_prompts):
-        with pytest.warns(UserWarning, match="not found"):
+        with pytest.warns(UserWarning, match="Could not resolve"):
             dp = DynaPrompt(
                 settings_files=[str(toml_prompts)],
                 variables=["/nonexistent/path/vars.json"],

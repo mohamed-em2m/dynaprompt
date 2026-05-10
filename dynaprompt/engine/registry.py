@@ -31,15 +31,7 @@ class VariableRegistry:
                 )
                 self.register_dict(item, f"dict_{idx}", "dict", current_env)
             elif isinstance(item, (str, pathlib.Path)):
-                path = pathlib.Path(item).resolve()
-                if path.exists():
-                    self.load_from_file(path, current_env)
-                else:
-                    warnings.warn(
-                        f"DynaPrompt: Variables file not found: {path}",
-                        UserWarning,
-                        stacklevel=3,
-                    )
+                self._load_flexible(item, current_env)
 
     def register_dict(
         self,
@@ -107,6 +99,84 @@ class VariableRegistry:
             self._variables[namespaced] = value
         else:
             self._variables[key] = value
+
+    def _load_flexible(self, spec: str | pathlib.Path, current_env: str) -> None:
+        """Resolve a flexible path spec and load variables from it.
+
+        Supports all formats handled by ``resolve_path_spec``::
+
+            "config/var.py"              → load whole file
+            "config/var.py:variables"    → load only that attribute
+            "config.var.variables"       → dotted module + attribute
+            "config.var"                 → dotted module, whole file
+            "config/var"                 → auto-detect extension
+        """
+        # If it's already a resolved Path, skip the spec resolution
+        if isinstance(spec, pathlib.Path):
+            path = spec.resolve()
+            if path.exists():
+                self.load_from_file(path, current_env)
+            else:
+                warnings.warn(
+                    f"DynaPrompt: Variables file not found: {path}",
+                    UserWarning,
+                    stacklevel=3,
+                )
+            return
+
+        from ..utils import resolve_path_spec
+
+        resolved_path, attr_name = resolve_path_spec(spec)
+
+        if resolved_path is None:
+            # Fallback: try as a plain path
+            plain = pathlib.Path(spec).resolve()
+            if plain.exists():
+                self.load_from_file(plain, current_env)
+            else:
+                warnings.warn(
+                    f"DynaPrompt: Could not resolve variables spec: {spec!r}",
+                    UserWarning,
+                    stacklevel=3,
+                )
+            return
+
+        if attr_name and resolved_path.suffix == ".py":
+            # Load only a specific attribute from the Python module
+            self._load_python_attr(resolved_path, attr_name)
+        else:
+            self.load_from_file(resolved_path, current_env)
+
+    def _load_python_attr(self, path: pathlib.Path, attr_name: str) -> None:
+        """Load a specific attribute from a Python module as a variable."""
+        import importlib.util
+        import sys
+
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        if not spec or not spec.loader:
+            return
+        mod = importlib.util.module_from_spec(spec)
+        sys.path.insert(0, str(path.parent))
+        try:
+            spec.loader.exec_module(mod)
+            # Navigate dotted attrs: "variables" or "nested.attr"
+            obj = mod
+            for part in attr_name.split("."):
+                obj = getattr(obj, part, None)
+                if obj is None:
+                    warnings.warn(
+                        f"DynaPrompt: Attribute '{attr_name}' not found in {path}",
+                        UserWarning,
+                        stacklevel=3,
+                    )
+                    return
+
+            if isinstance(obj, dict):
+                self.register_dict(obj, f"{path.stem}_{attr_name}", "py", "default")
+            else:
+                self.set_var(attr_name, obj, "py")
+        finally:
+            sys.path.pop(0)
 
     def load_from_file(self, path: pathlib.Path, current_env: str) -> None:
         suffix = path.suffix.lower()

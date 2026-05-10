@@ -133,34 +133,41 @@ updated = prompts.google.gemini.rerender(text="It's really fast.")
 ```
 
 ### Auto-Exporting Prompts to TOML
-You can automatically export your entire loaded prompt structure into a central `pyprompts.toml` file. This acts as an interface for users to easily view or override prompt templates and settings.
+You can automatically export your entire loaded prompt structure into a central `pyprompts.toml` file. To keep things clean and optimized:
+- **Multiline Templates**: Saved as separate `.md` files in a `prompts/` directory.
+- **TOML**: References these files by relative path.
+
+This makes your configuration much more readable and easier to manage in version control.
 
 ```python
 # Pass auto_export=True, or auto_export="custom_path.toml"
 prompts = DynaPrompt(settings_files=["examples/"], auto_export=True)
 
-# Access a prompt to trigger the lazy load and export the file
+# Access a prompt to trigger the lazy load and export
 _ = prompts.google.gemini
 ```
 
 ### File-Based Templates and Variables
-Instead of writing long strings in your configuration files, you can reference external files directly in your TOML config. DynaPrompt will automatically resolve and load their contents!
+DynaPrompt is designed to keep your configuration files clean. Instead of long strings, you can reference external files and modules directly.
 
+#### 1. Templates by Path
+In your TOML config, if a `template` value is a single-line string that resolves to a file, DynaPrompt reads it automatically.
 ```toml
 [default.my_prompt]
-# Read the prompt text directly from a file
-template = "path/to/external_template.md"
-
-# Load default variables from a JSON or YAML file
-variables = "path/to/default_vars.json"
+template = "prompts/my_template.md"  # Transparently loaded
 ```
 
-You can also define prompt-specific variables directly inline:
+#### 2. Flexible Variables
+The `variables` field (both globally and per-prompt) supports dynamic resolution from files and modules:
 ```toml
 [default.my_prompt]
-template = "Hello {{ username }}! Your tier is {{ tier }}."
-[default.my_prompt.variables]
-tier = "Premium"
+# Multiple formats supported:
+variables = [
+    "config/vars.json",           # File path
+    "config/settings.py:vars",    # Extract 'vars' attribute from a .py file
+    "myapp.config.defaults",      # Dotted module path
+    "myapp.config:constants"      # Dotted module + explicit attribute
+]
 ```
 
 ### Schema Integration

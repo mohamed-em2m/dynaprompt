@@ -1,27 +1,4 @@
 {
-    "type": "object",
-    "properties": {
-        "summary": {
-            "type": "string"
-        },
-        "topics": {
-            "type": "array",
-            "items": {
-                "type": "string"
-            }
-        },
-        "sentiment": {
-            "type": "string",
-            "enum": [
-                "Positive",
-                "Negative",
-                "Neutral"
-            ]
-        }
-    },
-    "required": [
-        "summary",
-        "topics",
-        "sentiment"
-    ]
+    "title": "str",
+    "summary": "str"
 }

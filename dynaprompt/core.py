@@ -129,6 +129,12 @@ class _PromptSettings:
                     self._registry.load_from_file(path, self._layer.current_env)
                 else:
                     self._load_one_file(path)
+            else:
+                warnings.warn(
+                    f"DynaPrompt: Settings file not found: {item}",
+                    UserWarning,
+                    stacklevel=3,
+                )
 
     def _load_dir(self, directory: pathlib.Path):
         files_to_load = self._resolver.scan_directory(directory, _SUPPORTED_SUFFIXES)

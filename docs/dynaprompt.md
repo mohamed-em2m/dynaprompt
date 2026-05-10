@@ -52,9 +52,16 @@ Access them as: `prompts.auth.login` or `prompts.support.chat`.
 ### 📤 Auto-Exporting (pyprompts.toml)
 DynaPrompt can automatically generate a central configuration file representing your entire loaded structure. This is perfect for allowing non-technical users to override templates without touching the code.
 
+To maintain a clean and optimized structure, multiline templates are exported as separate Markdown files in a `prompts/` directory, while the generated TOML references them by relative path.
+
 ```python
 prompts = DynaPrompt(settings_files=["prompts/"], auto_export=True)
 ```
+
+### 🔗 Flexible Path Resolution
+DynaPrompt supports powerful, dynamic path resolution for both **templates** and **variables**:
+- **Templates**: Any single-line string in TOML that resolves to an existing file is loaded as the template content.
+- **Variables**: Load variables from JSON, YAML, TOML, or Python. Supports attribute extraction using the `:` syntax (e.g., `config.py:vars`) or dotted module notation.
 
 ### 📦 Automatic Schema Integration
 Register Pydantic models automatically from `.py` files. These can then be used for response validation or injected directly into templates as JSON schemas.

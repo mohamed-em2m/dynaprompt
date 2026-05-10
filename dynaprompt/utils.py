@@ -1,8 +1,9 @@
-"""Utility functions — object_merge and inspect_prompts."""
+"""Utility functions — object_merge, inspect_prompts, resolve_path_spec."""
 
 from __future__ import annotations
 
 import json
+import pathlib
 import sys
 
 
@@ -41,6 +42,80 @@ def sanitize_name(stem: str) -> str:
     if name[0].isdigit():
         name = f"p_{name}"
     return name
+
+
+_PATH_EXTENSIONS = (".py", ".toml", ".json", ".yaml", ".yml", ".md", ".txt")
+
+
+def resolve_path_spec(
+    spec: str,
+    base_dir: pathlib.Path | None = None,
+    extensions: tuple[str, ...] = _PATH_EXTENSIONS,
+) -> tuple[pathlib.Path | None, str | None]:
+    """
+    Resolve a flexible path/module specification to ``(file_path, attr_name)``.
+
+    Supported formats
+    -----------------
+    File-based (contains ``/`` or ``\\``):
+
+        ``"prompts/cs.md"``           →  (Path, None)
+        ``"config/var.py:variables"`` →  (Path, "variables")
+        ``"config/var"``              →  (Path, None)   ← auto-detect extension
+
+    Dotted module-style (no slashes):
+
+        ``"config.var"``              →  (Path("config/var.py"), None)
+        ``"config.var:variables"``    →  (Path("config/var.py"), "variables")
+        ``"config.var.variables"``    →  (Path("config/var.py"), "variables")
+
+    Returns ``(resolved_path, attr_name)`` or ``(None, None)`` if unresolvable.
+    """
+    base = pathlib.Path(base_dir) if base_dir else pathlib.Path.cwd()
+    attr: str | None = None
+
+    # 1. Split explicit attribute via ":"
+    if ":" in spec:
+        path_part, attr_raw = spec.split(":", 1)
+        attr = attr_raw.strip() or None
+    else:
+        path_part = spec
+
+    is_file_path = "/" in path_part or "\\" in path_part
+
+    def _try_resolve(candidate: pathlib.Path) -> pathlib.Path | None:
+        """Try candidate path, then candidate + known extensions."""
+        resolved = (base / candidate).resolve()
+        if resolved.exists() and resolved.is_file():
+            return resolved
+        for ext in extensions:
+            with_ext = resolved.with_suffix(ext)
+            if with_ext.exists():
+                return with_ext
+        return None
+
+    # 2a. File-based path
+    if is_file_path:
+        found = _try_resolve(pathlib.Path(path_part))
+        return (found, attr) if found else (None, None)
+
+    # 2b. Dotted module-style path
+    parts = path_part.split(".")
+
+    if attr is not None:
+        # All parts → module path, attr already known
+        found = _try_resolve(pathlib.Path(*parts))
+        return (found, attr) if found else (None, None)
+
+    # No explicit attr — try splitting last part(s) off as attribute
+    for split_at in range(len(parts), 0, -1):
+        module_parts = parts[:split_at]
+        remaining = parts[split_at:]
+        found = _try_resolve(pathlib.Path(*module_parts))
+        if found:
+            return found, ".".join(remaining) if remaining else None
+
+    return None, None
 
 
 def inspect_prompts(
@@ -98,14 +173,25 @@ def inspect_prompts(
 
 
 def export_to_toml(prompts_instance, filepath: str = "pyprompts.toml") -> None:
-    """Export the loaded prompt structure to a TOML file for user customization."""
+    """Export the loaded prompt structure to a TOML file for user customization.
+
+    Multiline templates are saved as individual files under a ``prompts/``
+    directory beside the TOML file, and referenced by relative path.  This
+    keeps the TOML compact and easy to diff.
+    """
+    import os
+
     if prompts_instance._wrapped is None:
         prompts_instance._setup()
 
     raw_data = prompts_instance._wrapped._raw_data
+    toml_dir = pathlib.Path(filepath).parent.resolve()
+    prompts_dir = toml_dir / "prompts"
+
     lines = [
         "# Auto-generated DynaPrompt structure",
         "# You can modify this file to override prompt templates and settings",
+        "# Templates are stored in the prompts/ directory and referenced by path",
         "",
     ]
 
@@ -135,8 +221,26 @@ def export_to_toml(prompts_instance, filepath: str = "pyprompts.toml") -> None:
             for k, v in data.items():
                 if k.startswith("_"):
                     continue
+
+                if k == "template" and isinstance(v, str):
+                    # Read file content if it's a file path
+                    if os.path.isfile(v):
+                        try:
+                            with open(v, encoding="utf-8") as f:
+                                v = f.read()
+                        except Exception:
+                            pass
+
+                    # Save multiline templates to files, reference by path
+                    if "\n" in v and len(v) > 80:
+                        prompt_file = prompts_dir / f"{name}.md"
+                        prompts_dir.mkdir(parents=True, exist_ok=True)
+                        prompt_file.write_text(v.strip() + "\n", encoding="utf-8")
+                        rel_path = prompt_file.relative_to(toml_dir).as_posix()
+                        lines.append(f'{k} = "{rel_path}"')
+                        continue
+
                 if isinstance(v, dict):
-                    # Simplistic inline table
                     items = ", ".join(
                         f'"{ik}" = {format_value(iv)}' for ik, iv in v.items()
                     )
