@@ -61,6 +61,30 @@ class TestTomlLoading:
         rendered = dp.support.render(user="x", issue="y")
         assert rendered.config["model"] == "gpt-3.5"
 
+    def test_toml_dotted_keys_flattening(self, tmp_path):
+        """Test that [default.a.b] is flattened to prompt name 'a.b'."""
+        p = tmp_path / "dotted.toml"
+        p.write_text('[default.gemini.analyzer]\nmodel = "gpt-4"\n', encoding="utf-8")
+        dp = DynaPrompt(settings_files=[str(p)])
+        dp.inspect()
+        assert "gemini.analyzer" in dp._wrapped._store
+        assert dp.gemini.analyzer.metadata["model"] == "gpt-4"
+
+    def test_toml_template_path_resolution(self, tmp_path):
+        """Test that 'template = path' automatically reads the file."""
+        template_path = tmp_path / "hello.md"
+        template_path.write_text("Hello {{ name }}", encoding="utf-8")
+
+        toml_path = tmp_path / "prompts.toml"
+        toml_path.write_text(
+            f'[default.greet]\ntemplate = "{template_path.name}"\n', encoding="utf-8"
+        )
+
+        # Load from tmp_path where both files reside
+        dp = DynaPrompt(settings_files=[str(toml_path)])
+        rendered = dp.greet.render(name="Path")
+        assert "Hello Path" in rendered.text
+
 
 class TestDirectoryLoading:
     def test_loads_from_directory(self, prompts_dir):
