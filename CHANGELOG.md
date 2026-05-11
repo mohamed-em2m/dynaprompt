@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.4] - 2026-05-11
+
+### Added
+- **`template` Property Alias**: `PromptNode` now supports `.template` as a more intuitive alias for the raw `.text` attribute.
+
+### Fixed
+- **Auto-Render Locking**: Fixed a regression where enabling `auto_render` would "lock" the template and prevent subsequent overrides in `.render()` calls.
+
+
 ## [0.3.3] - 2026-05-11
 
 ### Added
