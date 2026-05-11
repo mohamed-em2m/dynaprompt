@@ -7,7 +7,7 @@ name = "dynaprompt"
 version = "0.3.3"
 description = "Dynamic prompt management and configuration library for LLM applications. Powerful, lazy-loading, and supports Jinja2 templates and Pydantic schemas."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.8"
 authors = [{ name = "Mohamed Emam" }]
 license = "MIT"
 classifiers = [
@@ -73,9 +73,9 @@ keywords = [
 [project.urls]
 Homepage = "https://github.com/mohamed-em2m/dynaprompt"
 Repository = "https://github.com/mohamed-em2m/dynaprompt"
-Documentation = "https://github.com/mohamed-em2m/dynaprompt#readme"
+Documentation = "https://mohamed-em2m.github.io/dynaprompt/"
 Issues = "https://github.com/mohamed-em2m/dynaprompt/issues"
-Changelog = "https://github.com/mohamed-em2m/dynaprompt/releases"
+Changelog = "https://mohamed-em2m.github.io/dynaprompt/changelog/"
 
 [dependency-groups]
 dev = [
