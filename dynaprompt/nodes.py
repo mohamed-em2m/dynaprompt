@@ -107,8 +107,10 @@ class PromptNode:
         self._auto_render = auto_render
         self._overrides: dict[str, Any] = {}
         self.bound_kwargs: dict[str, Any] = {}
+        self._setup_template()
 
-        # ── Pre-compile Jinja2 template ───────────────────────────────────────
+    def _setup_template(self) -> None:
+        """Pre-compile Jinja2 template and handle auto-rendering."""
         jinja_env = jinja2.Environment(undefined=jinja2.Undefined, enable_async=True)
         template_str = self.text
         if self._parent_template and "{{ super() }}" in template_str:
@@ -128,6 +130,16 @@ class PromptNode:
                     UserWarning,
                     stacklevel=2,
                 )
+
+    @property
+    def template(self) -> str:
+        """Alias for self.text to provide a more intuitive API."""
+        return self.text
+
+    @template.setter
+    def template(self, value: str) -> None:
+        self.text = value
+        self._setup_template()
 
     def _build_render_context(
         self, extra_kwargs: dict[str, Any] = None
