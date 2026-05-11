@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dynaprompt"
-version = "0.3.2"
+version = "0.3.3"
 description = "Dynamic prompt management and configuration library for LLM applications. Powerful, lazy-loading, and supports Jinja2 templates and Pydantic schemas."
 readme = "README.md"
 requires-python = ">=3.9"
