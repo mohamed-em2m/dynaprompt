@@ -96,6 +96,7 @@ class PromptNode:
     ):
         self.name = name
         self.text = text
+        self.raw_template = text
         self.metadata = metadata or {}
         self.response_schema = response_schema
         self._parent_template = parent_template
@@ -112,7 +113,7 @@ class PromptNode:
     def _setup_template(self) -> None:
         """Pre-compile Jinja2 template and handle auto-rendering."""
         jinja_env = jinja2.Environment(undefined=jinja2.Undefined, enable_async=True)
-        template_str = self.text
+        template_str = self.raw_template
         if self._parent_template and "{{ super() }}" in template_str:
             template_str = template_str.replace("{{ super() }}", self._parent_template)
         self._compiled_template = jinja_env.from_string(template_str)
@@ -121,7 +122,7 @@ class PromptNode:
             context = self._build_render_context()
             jinja_env = jinja2.Environment(undefined=jinja2.DebugUndefined)
             try:
-                self.text = jinja_env.from_string(self.text).render(**context)
+                self.text = jinja_env.from_string(self.raw_template).render(**context)
             except Exception as exc:
                 import warnings
 
@@ -133,11 +134,12 @@ class PromptNode:
 
     @property
     def template(self) -> str:
-        """Alias for self.text to provide a more intuitive API."""
-        return self.text
+        """Returns the raw, unrendered template string."""
+        return self.raw_template
 
     @template.setter
     def template(self, value: str) -> None:
+        self.raw_template = value
         self.text = value
         self._setup_template()
 
