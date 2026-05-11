@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.5] - 2026-05-11
+
+### Fixed
+- **Python Variable Stability**: Fixed a crash (`TypeError: cannot pickle 'module' object`) when loading Python files that contain standard imports (e.g. `import math`). Modules are now automatically excluded from the variable registry.
+
 ## [0.3.4] - 2026-05-11
 
 ### Added
