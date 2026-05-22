@@ -142,6 +142,8 @@ class PromptStore:
             hooks=context["hooks"],
             current_env=context["current_env"],
             auto_render=context["auto_render"],
+            store=self,
+            parent_context=context,
         )
 
         if self._cache_enabled:

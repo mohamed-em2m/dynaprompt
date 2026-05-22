@@ -2,13 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.7] - 2026-05-11
+## [0.4.0] - 2026-05-22
 
 ### Added
-- **Pydantic Auto-Detection Enhancement**: Improved Pydantic schema auto-detection to handle cases where the schema is imported within a Python file located in the `settings_files` directory. The system now automatically registers Pydantic classes found in these files, allowing them to be referenced directly by name in the markdown frontmatter (e.g., `response_schema: MyPydanticClass`).
+- **Nested Prompt Support**: Prompts can now be included inside other prompts using the `{{prompt_name}}` syntax.
+- **Recursion Protection**: Implemented a render stack to prevent circular references between prompts (e.g., A includes B, B includes A). Detected loops are replaced with a safe warning message instead of a `RecursionError`.
+- **Enhanced Variable Registry**: The directory scanner now skips internal and hidden directories (like `.venv`, `.git`, `__pycache__`) by default to prevent self-loading or `ImportError`.
 
 ### Fixed
-- **Auto-Render Locking**: Fixed a regression where enabling `auto_render` would "lock" the template and prevent subsequent overrides in `.render()` calls.
+- **Synchronous Rendering Compatibility**: Fixed a bug where `enable_async=True` in Jinja2 was causing synchronous `render()` calls to return coroutines instead of text. Sync and Async rendering now utilize separate pre-compiled templates.
+- **Auto-Render Lifecycle**: Refactored `auto_render` to use a "silent" internal render. This ensures variables and schemas are rendered during initialization without triggering lifecycle hooks twice.
+- **Schema Context Injection**: Global schemas (from shared `.py` or `.json` files) are now automatically injected into all prompt contexts, including nested prompts.
+
+## [0.3.6] - 2026-05-11
+
+## [0.3.5] - 2026-05-11
+
+### Fixed
+- **Python Variable Stability**: Fixed a crash (`TypeError: cannot pickle 'module' object`) when loading Python files that contain standard imports (e.g. `import math`). Modules are now automatically excluded from the variable registry.
 
 ## [0.3.4] - 2026-05-11
 

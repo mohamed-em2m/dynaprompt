@@ -37,6 +37,15 @@ class FileResolver:
         seen_names: dict[str, pathlib.Path] = {}
 
         for child in sorted(directory.rglob("*")):
+            # Skip hidden directories and common environment/cache folders
+            rel_parts = child.relative_to(directory).parts
+            if any(
+                part.startswith(".")
+                or part in ("__pycache__", "venv", "env", "dynaprompt")
+                for part in rel_parts
+            ):
+                continue
+
             if not child.is_file() or child.name == "__init__.py":
                 continue
             if child.suffix not in supported_suffixes:
