@@ -11,7 +11,7 @@ from typing import Any
 import jinja2
 from pydantic import BaseModel
 
-from .hooking import hookable
+from .hooking import async_hookable, hookable
 from .secrets import SecretStore
 from .validator import ValidatorList
 
@@ -178,16 +178,22 @@ class PromptNode:
 
     def _setup_template(self) -> None:
         """Pre-compile Jinja2 template and handle auto-rendering."""
-        jinja_env = jinja2.Environment(undefined=jinja2.Undefined, enable_async=True)
+        jinja_env = jinja2.Environment(undefined=jinja2.Undefined)
+        jinja_env_async = jinja2.Environment(
+            undefined=jinja2.Undefined, enable_async=True
+        )
         template_str = self.raw_template
         if self._parent_template and "{{ super() }}" in template_str:
             template_str = template_str.replace("{{ super() }}", self._parent_template)
+
         self._compiled_template = jinja_env.from_string(template_str)
+        self._compiled_template_async = jinja_env_async.from_string(template_str)
 
         if self._auto_render:
             try:
-                # Use render() to benefit from recursion stack protection
-                rendered = self.render()
+                # Use internal render to benefit from recursion stack protection
+                # while avoiding triggering lifecycle hooks during initialization.
+                rendered = self._render_internal()
                 self.text = rendered.text
             except Exception as exc:
                 import warnings
@@ -367,6 +373,10 @@ class PromptNode:
         Render the prompt template with the provided variables.
         Runs validators → Jinja2 → after_render hooks.
         """
+        return self._render_internal(*args, **kwargs)
+
+    def _render_internal(self, *args, **kwargs) -> RenderedPrompt:
+        """Core rendering logic with recursion protection but no hooks."""
         stack = _render_stack.get()
         if self.name in stack:
             # Short-circuit recursion by returning a notice instead of failing
@@ -407,7 +417,6 @@ class PromptNode:
         finally:
             _render_stack.reset(token)
 
-    from .hooking import async_hookable
 
     @async_hookable
     async def async_render(self, *args, **kwargs) -> RenderedPrompt:
@@ -415,6 +424,10 @@ class PromptNode:
         Asynchronously render the prompt template (I/O non-blocking).
         Runs validators → Jinja2 async → after_render hooks.
         """
+        return await self._async_render_internal(*args, **kwargs)
+
+    async def _async_render_internal(self, *args, **kwargs) -> RenderedPrompt:
+        """Core async rendering logic with recursion protection but no hooks."""
         stack = _render_stack.get()
         if self.name in stack:
             msg = f"[Recursive reference to '{self.name}' detected]"
@@ -435,7 +448,7 @@ class PromptNode:
             context = self._build_render_context(self.bound_kwargs)
 
             try:
-                rendered_text = await self._compiled_template.render_async(**context)
+                rendered_text = await self._compiled_template_async.render_async(**context)
             except Exception as exc:
                 raise RuntimeError(
                     f"Failed to async-render prompt '{self.name}': {exc}"
@@ -464,6 +477,8 @@ class PromptNode:
     async def async_rerender(self, **kwargs) -> RenderedPrompt:
         """Async alias for rerender()."""
         return await self.async_render(**kwargs)
+
+    def call(self, **kwargs) -> Any:
         """
         Render and (in the future) call an LLM provider directly.
         """

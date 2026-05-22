@@ -2,11 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.6] - 2026-05-11
+## [0.4.0] - 2026-05-22
 
 ### Added
-- **Dot-Notation Variables**: Variables in `PromptNode` can now be accessed directly using dot notation (e.g., `node.variables.MyVariable`).
-- **Pydantic Auto-Detection**: DynaPrompt now automatically detects if a Pydantic schema is passed in the variables and referenced in the template. If so, it automatically assigns it as the `response_schema` for the prompt, eliminating the need to explicitly define it in the markdown frontmatter in most cases.
+- **Nested Prompt Support**: Prompts can now be included inside other prompts using the `{{prompt_name}}` syntax.
+- **Recursion Protection**: Implemented a render stack to prevent circular references between prompts (e.g., A includes B, B includes A). Detected loops are replaced with a safe warning message instead of a `RecursionError`.
+- **Enhanced Variable Registry**: The directory scanner now skips internal and hidden directories (like `.venv`, `.git`, `__pycache__`) by default to prevent self-loading or `ImportError`.
+
+### Fixed
+- **Synchronous Rendering Compatibility**: Fixed a bug where `enable_async=True` in Jinja2 was causing synchronous `render()` calls to return coroutines instead of text. Sync and Async rendering now utilize separate pre-compiled templates.
+- **Auto-Render Lifecycle**: Refactored `auto_render` to use a "silent" internal render. This ensures variables and schemas are rendered during initialization without triggering lifecycle hooks twice.
+- **Schema Context Injection**: Global schemas (from shared `.py` or `.json` files) are now automatically injected into all prompt contexts, including nested prompts.
+
+## [0.3.6] - 2026-05-11
 
 ## [0.3.5] - 2026-05-11
 
