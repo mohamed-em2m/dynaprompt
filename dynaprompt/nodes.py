@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import os
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -13,6 +14,10 @@ from pydantic import BaseModel
 from .hooking import hookable
 from .secrets import SecretStore
 from .validator import ValidatorList
+
+_render_stack: ContextVar[frozenset[str]] = ContextVar(
+    "_render_stack", default=frozenset()
+)
 
 
 @dataclass
@@ -83,6 +88,32 @@ class VariableDict(dict):
         raise AttributeError(f"'VariableDict' object has no attribute '{name}'")
 
 
+class PromptsProxy:
+    """Lazy loader for other prompts within a Jinja context."""
+
+    def __init__(self, store: Any, parent_context: dict[str, Any]):
+        self._store = store
+        self._parent_context = parent_context
+        self._cache: dict[str, PromptNode] = {}
+
+    def __getitem__(self, name: str) -> Any:
+        if name in self._cache:
+            return self._cache[name]
+
+        if not self._store or name not in self._store:
+            raise KeyError(name)
+
+        node = self._store.get_node(name, self._parent_context)
+        self._cache[name] = node
+        return node
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError:
+            raise AttributeError(f"Prompt '{name}' not found in store.")
+
+
 class PromptNode:
     """
     Represents a single parsed prompt. Supports fluent config overrides and
@@ -102,6 +133,8 @@ class PromptNode:
         hooks: dict[str, list] = None,
         current_env: str = "default",
         auto_render: bool = False,
+        store: Any = None,
+        parent_context: dict[str, Any] = None,
     ):
         self.name = name
         self.text = text
@@ -115,6 +148,8 @@ class PromptNode:
         self._hooks = hooks or {}
         self._current_env = current_env
         self._auto_render = auto_render
+        self._store = store
+        self._parent_context = parent_context
         self._overrides: dict[str, Any] = {}
         self.bound_kwargs: dict[str, Any] = {}
 
@@ -137,6 +172,10 @@ class PromptNode:
 
         self._setup_template()
 
+    def __str__(self) -> str:
+        """Auto-render when used in a string context (e.g. nested prompts)."""
+        return self.render().text
+
     def _setup_template(self) -> None:
         """Pre-compile Jinja2 template and handle auto-rendering."""
         jinja_env = jinja2.Environment(undefined=jinja2.Undefined, enable_async=True)
@@ -146,10 +185,10 @@ class PromptNode:
         self._compiled_template = jinja_env.from_string(template_str)
 
         if self._auto_render:
-            context = self._build_render_context()
-            jinja_env = jinja2.Environment(undefined=jinja2.DebugUndefined)
             try:
-                self.text = jinja_env.from_string(self.raw_template).render(**context)
+                # Use render() to benefit from recursion stack protection
+                rendered = self.render()
+                self.text = rendered.text
             except Exception as exc:
                 import warnings
 
@@ -207,6 +246,31 @@ class PromptNode:
 
         # 3. Render-time keyword arguments
         inject_and_flatten(extra_kwargs)
+
+        # 4. Nested prompts support
+        if self._store:
+            # Provide explicit 'prompts' accessor
+            proxy = PromptsProxy(self._store, self._parent_context)
+            context["prompts"] = proxy
+
+            # Inject top-level names lazily via property-like behavior isn't easy
+            # in a dict, so we'll just inject them all. To avoid the RecursionError
+            # during auto_render, we rely on the _render_stack check in render().
+            for p_name in self._store.keys():
+                if p_name != self.name and p_name not in context:
+                    # We inject the proxy indexer itself? No, Jinja needs the object.
+                    # But if we access it now, it triggers render().
+                    # However, render() is now protected!
+                    try:
+                        context[p_name] = proxy[p_name]
+                    except (KeyError, AttributeError):
+                        pass
+
+        # 5. Global schemas support
+        if self._parent_context and "schemas" in self._parent_context:
+            for s_name, s_obj in self._parent_context["schemas"].items():
+                if s_name not in context:
+                    context[s_name] = s_obj
 
         # Auto-inject JSON schema if a response_schema was resolved
         if self.response_schema:
@@ -303,33 +367,45 @@ class PromptNode:
         Render the prompt template with the provided variables.
         Runs validators → Jinja2 → after_render hooks.
         """
-        for arg in args:
-            if isinstance(arg, dict):
-                kwargs.update(arg)
+        stack = _render_stack.get()
+        if self.name in stack:
+            # Short-circuit recursion by returning a notice instead of failing
+            msg = f"[Recursive reference to '{self.name}' detected]"
+            return RenderedPrompt(text=msg, config={})
 
-        self.bound_kwargs.update(kwargs)
-
-        self._validators.validate(
-            self, self.bound_kwargs, current_env=self._current_env
-        )
-
-        context = self._build_render_context(self.bound_kwargs)
-
+        token = _render_stack.set(stack | {self.name})
         try:
-            rendered_text = self._compiled_template.render(**context)
-        except Exception as exc:
-            raise RuntimeError(f"Failed to render prompt '{self.name}': {exc}") from exc
+            for arg in args:
+                if isinstance(arg, dict):
+                    kwargs.update(arg)
 
-        final_config = {**self.metadata, **self._overrides}
-        p_hash = self._compute_hash(rendered_text, final_config)
+            self.bound_kwargs.update(kwargs)
 
-        return RenderedPrompt(
-            text=rendered_text,
-            config=final_config,
-            response_schema=self.response_schema,
-            source_history=self._history,
-            prompt_hash=p_hash,
-        )
+            self._validators.validate(
+                self, self.bound_kwargs, current_env=self._current_env
+            )
+
+            context = self._build_render_context(self.bound_kwargs)
+
+            try:
+                rendered_text = self._compiled_template.render(**context)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to render prompt '{self.name}': {exc}"
+                ) from exc
+
+            final_config = {**self.metadata, **self._overrides}
+            p_hash = self._compute_hash(rendered_text, final_config)
+
+            return RenderedPrompt(
+                text=rendered_text,
+                config=final_config,
+                response_schema=self.response_schema,
+                source_history=self._history,
+                prompt_hash=p_hash,
+            )
+        finally:
+            _render_stack.reset(token)
 
     from .hooking import async_hookable
 
@@ -339,35 +415,44 @@ class PromptNode:
         Asynchronously render the prompt template (I/O non-blocking).
         Runs validators → Jinja2 async → after_render hooks.
         """
-        for arg in args:
-            if isinstance(arg, dict):
-                kwargs.update(arg)
+        stack = _render_stack.get()
+        if self.name in stack:
+            msg = f"[Recursive reference to '{self.name}' detected]"
+            return RenderedPrompt(text=msg, config={})
 
-        self.bound_kwargs.update(kwargs)
-
-        self._validators.validate(
-            self, self.bound_kwargs, current_env=self._current_env
-        )
-
-        context = self._build_render_context(self.bound_kwargs)
-
+        token = _render_stack.set(stack | {self.name})
         try:
-            rendered_text = await self._compiled_template.render_async(**context)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Failed to async-render prompt '{self.name}': {exc}"
-            ) from exc
+            for arg in args:
+                if isinstance(arg, dict):
+                    kwargs.update(arg)
 
-        final_config = {**self.metadata, **self._overrides}
-        p_hash = self._compute_hash(rendered_text, final_config)
+            self.bound_kwargs.update(kwargs)
 
-        return RenderedPrompt(
-            text=rendered_text,
-            config=final_config,
-            response_schema=self.response_schema,
-            source_history=self._history,
-            prompt_hash=p_hash,
-        )
+            self._validators.validate(
+                self, self.bound_kwargs, current_env=self._current_env
+            )
+
+            context = self._build_render_context(self.bound_kwargs)
+
+            try:
+                rendered_text = await self._compiled_template.render_async(**context)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"Failed to async-render prompt '{self.name}': {exc}"
+                ) from exc
+
+            final_config = {**self.metadata, **self._overrides}
+            p_hash = self._compute_hash(rendered_text, final_config)
+
+            return RenderedPrompt(
+                text=rendered_text,
+                config=final_config,
+                response_schema=self.response_schema,
+                source_history=self._history,
+                prompt_hash=p_hash,
+            )
+        finally:
+            _render_stack.reset(token)
 
     def rerender(self, **kwargs) -> RenderedPrompt:
         """
