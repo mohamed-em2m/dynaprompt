@@ -16,6 +16,8 @@ class VariableRegistry:
         self._variables: dict[str, Any] = {}
         self._auto_render = auto_render
         self._schemas = schemas if schemas is not None else {}
+        # Directories where __pycache__ may have been created by importlib
+        self._pycache_dirs: set[pathlib.Path] = set()
 
     def load(self, items: list[Any] | None, current_env: str = "default") -> None:
         if not items:
@@ -157,6 +159,7 @@ class VariableRegistry:
             return
         mod = importlib.util.module_from_spec(spec)
         sys.path.insert(0, str(path.parent))
+        self._pycache_dirs.add(path.parent / "__pycache__")
         try:
             spec.loader.exec_module(mod)
             # Navigate dotted attrs: "variables" or "nested.attr"
@@ -222,6 +225,7 @@ class VariableRegistry:
             return
         mod = importlib.util.module_from_spec(spec)
         sys.path.insert(0, str(path.parent))
+        self._pycache_dirs.add(path.parent / "__pycache__")
         try:
             spec.loader.exec_module(mod)
             import inspect

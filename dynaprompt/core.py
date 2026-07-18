@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import pathlib
+import shutil
 import warnings
 from contextlib import contextmanager
 from typing import Any
@@ -93,6 +94,8 @@ class _PromptSettings:
         self._validators = ValidatorList()
         self._hooks: dict[str, list[Hook]] = {}
         self._auto_render = auto_render
+        # __pycache__ dirs created by _load_python_schemas (not tracked by registry)
+        self._pycache_dirs: set[pathlib.Path] = set()
 
         # 1. Variables
         self._registry.load(variables, current_env)
@@ -193,6 +196,7 @@ class _PromptSettings:
             return
         mod = importlib.util.module_from_spec(spec)
         sys.path.insert(0, str(path.parent))
+        self._pycache_dirs.add(path.parent / "__pycache__")
         try:
             spec.loader.exec_module(mod)
             for name in dir(mod):
@@ -254,6 +258,13 @@ class _PromptSettings:
 
     def get_history(self, name: str | None = None) -> dict:
         return self._store.get_history(name)
+
+    def collect_cleanup_dirs(self) -> set[pathlib.Path]:
+        """Return all __pycache__ and .dynaprompt dirs created during loading."""
+        dirs: set[pathlib.Path] = set()
+        dirs.update(self._pycache_dirs)
+        dirs.update(self._registry._pycache_dirs)
+        return dirs
 
 
 class DynaPrompt:
@@ -405,7 +416,61 @@ class DynaPrompt:
             self._env = old_env
 
     def reload(self) -> None:
+        """Reset the loaded state so the next access re-reads all files."""
+        self.cleanup()
         self._wrapped = None
+
+    # ------------------------------------------------------------------
+    # Cleanup — remove ephemeral cache artefacts created during loading
+    # ------------------------------------------------------------------
+
+    def cleanup(self) -> None:
+        """
+        Delete any ephemeral cache artefacts that were created while loading
+        prompt files:
+
+        * ``__pycache__`` directories that Python created inside the
+          directories of externally-loaded ``.py`` schema / variable files.
+        * ``.dynaprompt`` directories inside any scanned directory (used as a
+          temporary workspace by some loaders).
+
+        Safe to call multiple times — missing directories are silently skipped.
+        """
+        if self._wrapped is None:
+            return
+
+        dirs_to_remove = self._wrapped.collect_cleanup_dirs()
+
+        # Also look for .dynaprompt dirs inside every scanned settings root
+        for item in self._settings_files:
+            root = pathlib.Path(item).resolve()
+            if root.is_dir():
+                dynaprompt_cache = root / ".dynaprompt"
+                if dynaprompt_cache.exists():
+                    dirs_to_remove.add(dynaprompt_cache)
+            # Parent of a file
+            elif root.is_file():
+                dynaprompt_cache = root.parent / ".dynaprompt"
+                if dynaprompt_cache.exists():
+                    dirs_to_remove.add(dynaprompt_cache)
+
+        for d in dirs_to_remove:
+            if d.exists() and d.is_dir():
+                try:
+                    shutil.rmtree(d)
+                except Exception as exc:
+                    warnings.warn(
+                        f"DynaPrompt: Could not remove cache directory {d}: {exc}",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+
+    # Context-manager support — cleanup runs automatically on exit
+    def __enter__(self) -> DynaPrompt:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.cleanup()
 
     def add_validator(self, *validators: PromptValidator) -> None:
         self._validators.extend(validators)

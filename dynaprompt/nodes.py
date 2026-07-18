@@ -417,7 +417,6 @@ class PromptNode:
         finally:
             _render_stack.reset(token)
 
-
     @async_hookable
     async def async_render(self, *args, **kwargs) -> RenderedPrompt:
         """
@@ -448,7 +447,9 @@ class PromptNode:
             context = self._build_render_context(self.bound_kwargs)
 
             try:
-                rendered_text = await self._compiled_template_async.render_async(**context)
+                rendered_text = await self._compiled_template_async.render_async(
+                    **context
+                )
             except Exception as exc:
                 raise RuntimeError(
                     f"Failed to async-render prompt '{self.name}': {exc}"
