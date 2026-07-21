@@ -15,6 +15,7 @@ test*.ipynb
 .cache/
 # Distribution / packaging
 .Python
+pyprompts*
 env/
 venv/
 .venv/
