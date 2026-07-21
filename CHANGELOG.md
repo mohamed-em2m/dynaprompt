@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-07-18
+
+### Added
+- **Automatic Cache Cleanup**: `DynaPrompt` now tracks every `__pycache__` directory
+  that Python creates when loading external `.py` schema and variable files via
+  `importlib`. These are removed automatically when `cleanup()` is called.
+- **`.dynaprompt` Folder Cleanup**: Any `.dynaprompt` directory found inside a scanned
+  settings root is removed during cleanup, preventing stale artefacts from accumulating
+  across runs.
+- **`cleanup()` Method**: Explicit cleanup API — call `prompts.cleanup()` at any point
+  to remove all ephemeral cache directories created since the last load.
+- **Context-Manager Support**: `DynaPrompt` now implements `__enter__` / `__exit__`,
+  so cleanup runs automatically when used as a context manager:
+  ```python
+  with DynaPrompt(settings_files=["prompts/"]) as p:
+      result = p.my_prompt.render()
+  # __pycache__ and .dynaprompt dirs deleted here
+  ```
+- **`reload()` now cleans up first**: Calling `reload()` triggers `cleanup()` before
+  resetting the internal state, ensuring no stale cache directories linger between
+  reloads.
+
 ## [0.4.0] - 2026-05-22
 
 ### Added

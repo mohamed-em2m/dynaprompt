@@ -11,9 +11,11 @@ __pycache__/
 test.ipynb
 .mypy_cache/
 *.mypy_cache/
-
+test*.ipynb
+.cache/
 # Distribution / packaging
 .Python
+pyprompts*
 env/
 venv/
 .venv/

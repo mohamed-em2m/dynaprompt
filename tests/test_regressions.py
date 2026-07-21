@@ -34,13 +34,39 @@ def test_infinite_loop_protection(tmp_path):
     # We need to mock inspect.stack()
     # It should return a list where at least one frame is NOT in dynaprompt
     mock_stack = [
-        MockFrame("C:\\some\\path\\dynaprompt\\core.py"),
+        MockFrame(str(tmp_path / "dynaprompt" / "core.py")),
         MockFrame(str(caller_file)),
     ]
 
     with patch("inspect.stack", return_value=mock_stack):
         dp = DynaPrompt(settings_files=[str(tmp_path)])
         # Trigger setup
+        dp.keys()
+        assert caller_file in dp._wrapped._exclude_files
+
+
+def test_caller_file_exclusion_when_path_contains_dynaprompt(tmp_path):
+    "Test caller file exclusion works even if the caller file path contains dynaprompt"
+    dynaprompt_dir = tmp_path / "dynaprompt_project"
+    dynaprompt_dir.mkdir()
+    caller_file = (dynaprompt_dir / "app.py").resolve()
+    caller_file.write_text("import dynaprompt", encoding="utf-8")
+
+    class MockFrame:
+        def __init__(self, filename):
+            self.filename = filename
+
+    import inspect
+
+    pkg_core = inspect.getfile(DynaPrompt)
+
+    mock_stack = [
+        MockFrame(pkg_core),
+        MockFrame(str(caller_file)),
+    ]
+
+    with patch("inspect.stack", return_value=mock_stack):
+        dp = DynaPrompt(settings_files=[str(dynaprompt_dir)])
         dp.keys()
         assert caller_file in dp._wrapped._exclude_files
 
