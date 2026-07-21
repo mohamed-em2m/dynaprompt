@@ -34,7 +34,7 @@ def test_infinite_loop_protection(tmp_path):
     # We need to mock inspect.stack()
     # It should return a list where at least one frame is NOT in dynaprompt
     mock_stack = [
-        MockFrame("C:\\some\\path\\dynaprompt\\core.py"),
+        MockFrame(str(tmp_path / "dynaprompt" / "core.py")),
         MockFrame(str(caller_file)),
     ]
 
