@@ -304,13 +304,35 @@ class DynaPrompt:
         import inspect
 
         try:
-            # We skip frames that are inside dynaprompt
+            # We skip frames that belong to dynaprompt package internals
             stack = inspect.stack()
             self._caller_file = None
+            pkg_dir = pathlib.Path(__file__).parent.resolve()
+            internal_files = {
+                "core.py",
+                "nodes.py",
+                "hooking.py",
+                "secrets.py",
+                "validator.py",
+                "utils.py",
+                "__init__.py",
+            }
             for frame in stack:
-                if "dynaprompt" not in frame.filename:
-                    self._caller_file = pathlib.Path(frame.filename).resolve()
-                    break
+                try:
+                    frame_path = pathlib.Path(frame.filename).resolve()
+                    is_internal = (
+                        pkg_dir in frame_path.parents
+                        or frame_path.parent == pkg_dir
+                        or (
+                            frame_path.parent.name == "dynaprompt"
+                            and frame_path.name in internal_files
+                        )
+                    )
+                    if not is_internal:
+                        self._caller_file = frame_path
+                        break
+                except Exception:
+                    continue
         except Exception:
             self._caller_file = None
 
