@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import os
+import re
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Any
@@ -89,29 +90,84 @@ class VariableDict(dict):
 
 
 class PromptsProxy:
-    """Lazy loader for other prompts within a Jinja context."""
+    """Lazy loader for other prompts and prompt namespaces within a Jinja context."""
 
-    def __init__(self, store: Any, parent_context: dict[str, Any]):
+    def __init__(self, store: Any, parent_context: dict[str, Any], prefix: str = ""):
         self._store = store
         self._parent_context = parent_context
-        self._cache: dict[str, PromptNode] = {}
+        self._prefix = prefix
+        self._cache: dict[str, Any] = {}
 
     def __getitem__(self, name: str) -> Any:
         if name in self._cache:
             return self._cache[name]
 
-        if not self._store or name not in self._store:
-            raise KeyError(name)
+        full_name = f"{self._prefix}.{name}" if self._prefix else name
 
-        node = self._store.get_node(name, self._parent_context)
-        self._cache[name] = node
-        return node
+        if self._store and full_name in self._store:
+            node = self._store.get_node(full_name, self._parent_context)
+            self._cache[name] = node
+            return node
+
+        # Check if full_name is a namespace prefix
+        # (e.g. 'agents' for 'agents.sub_agent')
+        prefix_dot = f"{full_name}."
+        if self._store and any(k.startswith(prefix_dot) for k in self._store.keys()):
+            sub_proxy = PromptsProxy(
+                self._store, self._parent_context, prefix=full_name
+            )
+            self._cache[name] = sub_proxy
+            return sub_proxy
+
+        raise KeyError(name)
 
     def __getattr__(self, name: str) -> Any:
         try:
             return self[name]
         except KeyError:
-            raise AttributeError(f"Prompt '{name}' not found in store.")
+            raise AttributeError(f"Prompt or namespace '{name}' not found in store.")
+
+
+def _prepare_safe_template(
+    template_str: str, context: dict[str, Any], jinja_env: jinja2.Environment
+) -> tuple[str, dict[str, Any]]:
+    """
+    Sanitize non-identifier variable names in context and protect invalid or unusual
+    Jinja tags from raising syntax errors, keeping unrendered/unusual tags as-is.
+    """
+    context_copy = dict(context)
+
+    # 1. Alias non-standard variable names in context (e.g., 'user:main', 'hello world')
+    for k, v in list(context.items()):
+        if isinstance(k, str) and not k.isidentifier() and not k.startswith("_"):
+            alias = "__var_" + re.sub(r"[^a-zA-Z0-9_]", "_", k)
+            context_copy[alias] = v
+            pattern = r"\{\{\s*" + re.escape(k) + r"\s*\}\}"
+            template_str = re.sub(pattern, f"{{{{ {alias} }}}}", template_str)
+
+    # 2. Inspect all {{ ... }} tags in template_str
+    tag_pattern = re.compile(r"\{\{(.*?)\}\}", re.DOTALL)
+
+    def replace_tag(match: re.Match) -> str:
+        expr = match.group(1).strip()
+        full_tag = match.group(0)
+
+        if expr in context:
+            alias = "__var_" + re.sub(r"[^a-zA-Z0-9_]", "_", expr)
+            context_copy[alias] = context[expr]
+            return f"{{{{ {alias} }}}}"
+
+        if expr in context_copy:
+            return full_tag
+
+        try:
+            jinja_env.from_string(f"{{{{ {expr} }}}}")
+            return full_tag
+        except jinja2.exceptions.TemplateSyntaxError:
+            return f"{{% raw %}}{full_tag}{{% endraw %}}"
+
+    processed_template = tag_pattern.sub(replace_tag, template_str)
+    return processed_template, context_copy
 
 
 class PromptNode:
@@ -157,7 +213,6 @@ class PromptNode:
             try:
                 from pydantic import BaseModel
 
-                # Auto-detect Pydantic schemas referenced in the template text
                 pydantic_models = [
                     v
                     for k, v in self.variables.items()
@@ -186,13 +241,15 @@ class PromptNode:
         if self._parent_template and "{{ super() }}" in template_str:
             template_str = template_str.replace("{{ super() }}", self._parent_template)
 
-        self._compiled_template = jinja_env.from_string(template_str)
-        self._compiled_template_async = jinja_env_async.from_string(template_str)
+        try:
+            self._compiled_template = jinja_env.from_string(template_str)
+            self._compiled_template_async = jinja_env_async.from_string(template_str)
+        except Exception:
+            self._compiled_template = None
+            self._compiled_template_async = None
 
         if self._auto_render:
             try:
-                # Use internal render to benefit from recursion stack protection
-                # while avoiding triggering lifecycle hooks during initialization.
                 rendered = self._render_internal()
                 self.text = rendered.text
             except Exception as exc:
@@ -235,7 +292,7 @@ class PromptNode:
             context.update(source_dict)
             for vkey in ("variables", "vars"):
                 if vkey in source_dict and isinstance(source_dict[vkey], dict):
-                    # Recursive flatten of this specific source's variables
+
                     def flatten(d):
                         for k, v in d.items():
                             context[k] = v
@@ -255,22 +312,40 @@ class PromptNode:
 
         # 4. Nested prompts support
         if self._store:
-            # Provide explicit 'prompts' accessor
             proxy = PromptsProxy(self._store, self._parent_context)
             context["prompts"] = proxy
 
-            # Inject top-level names lazily via property-like behavior isn't easy
-            # in a dict, so we'll just inject them all. To avoid the RecursionError
-            # during auto_render, we rely on the _render_stack check in render().
+            # Top-level namespace prefixes (e.g. 'agents' for 'agents.sub_agent')
+            for p_name in self._store.keys():
+                top_part = p_name.split(".")[0]
+                if top_part not in context and top_part != self.name:
+                    try:
+                        context[top_part] = proxy[top_part]
+                    except (KeyError, AttributeError):
+                        pass
+
+            # Full prompt names
             for p_name in self._store.keys():
                 if p_name != self.name and p_name not in context:
-                    # We inject the proxy indexer itself? No, Jinja needs the object.
-                    # But if we access it now, it triggers render().
-                    # However, render() is now protected!
                     try:
                         context[p_name] = proxy[p_name]
                     except (KeyError, AttributeError):
                         pass
+
+            # Sibling prompts within the same namespace
+            if "." in self.name:
+                ns_prefix = self.name.rsplit(".", 1)[0]
+                prefix_dot = f"{ns_prefix}."
+                for p_name in self._store.keys():
+                    if p_name.startswith(prefix_dot) and p_name != self.name:
+                        short_name = p_name[len(prefix_dot) :]
+                        if short_name not in context:
+                            try:
+                                context[short_name] = self._store.get_node(
+                                    p_name, self._parent_context
+                                )
+                            except Exception:
+                                pass
 
         # 5. Global schemas support
         if self._parent_context and "schemas" in self._parent_context:
@@ -278,16 +353,13 @@ class PromptNode:
                 if s_name not in context:
                     context[s_name] = s_obj
 
-        # Auto-inject JSON schema if a response_schema was resolved
         if self.response_schema:
             context["response_schema"] = self.schema_json
 
-        # Auto-serialize Pydantic models (classes or instances) to JSON/dict
         import inspect
         import json
 
         def _deep_process(obj, key_name=""):
-            # 1. Pydantic Classes (Schemas) -> JSON String
             if inspect.isclass(obj):
                 if hasattr(obj, "model_json_schema"):
                     return json.dumps(obj.model_json_schema(), indent=2)
@@ -295,24 +367,20 @@ class PromptNode:
                     return json.dumps(obj.schema(), indent=2)
                 return obj
 
-            # 2. Pydantic Instances -> Dict (for template access) or JSON
-            # (if key suggests)
-            if hasattr(obj, "model_dump"):  # Pydantic v2
+            if hasattr(obj, "model_dump"):
                 if "json" in key_name.lower() or "schema" in key_name.lower():
                     return obj.model_dump_json(indent=2)
                 return obj.model_dump()
-            if hasattr(obj, "dict") and callable(obj.dict):  # Pydantic v1
+            if hasattr(obj, "dict") and callable(obj.dict):
                 if "json" in key_name.lower() or "schema" in key_name.lower():
                     return obj.json(indent=2)
                 return obj.dict()
 
-            # 3. Recursive containers
             if isinstance(obj, dict):
                 return {k: _deep_process(v, k) for k, v in obj.items()}
             if isinstance(obj, list):
                 return [_deep_process(v, key_name) for v in obj]
 
-            # 4. Standard JSON fallback for dict/list if key suggests
             if isinstance(obj, (dict, list)) and (
                 "schema" in key_name.lower() or "json" in key_name.lower()
             ):
@@ -353,7 +421,6 @@ class PromptNode:
         import copy
 
         new_node = copy.copy(self)
-        # Deep copy the mutable state containers
         new_node._overrides = self._overrides.copy()
         new_node.bound_kwargs = self.bound_kwargs.copy()
         return new_node
@@ -379,7 +446,6 @@ class PromptNode:
         """Core rendering logic with recursion protection but no hooks."""
         stack = _render_stack.get()
         if self.name in stack:
-            # Short-circuit recursion by returning a notice instead of failing
             msg = f"[Recursive reference to '{self.name}' detected]"
             return RenderedPrompt(text=msg, config={})
 
@@ -397,12 +463,30 @@ class PromptNode:
 
             context = self._build_render_context(self.bound_kwargs)
 
+            template_str = self.raw_template
+            if self._parent_template and "{{ super() }}" in template_str:
+                template_str = template_str.replace(
+                    "{{ super() }}", self._parent_template
+                )
+
+            jinja_env = jinja2.Environment(undefined=jinja2.Undefined)
+            safe_template, safe_context = _prepare_safe_template(
+                template_str, context, jinja_env
+            )
+
             try:
-                rendered_text = self._compiled_template.render(**context)
+                compiled = jinja_env.from_string(safe_template)
+                rendered_text = compiled.render(**safe_context)
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to render prompt '{self.name}': {exc}"
-                ) from exc
+                import warnings
+
+                warnings.warn(
+                    f"DynaPrompt: Rendering prompt '{self.name}' "
+                    f"encountered error: {exc}. Keeping raw template.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                rendered_text = template_str
 
             final_config = {**self.metadata, **self._overrides}
             p_hash = self._compute_hash(rendered_text, final_config)
@@ -446,14 +530,32 @@ class PromptNode:
 
             context = self._build_render_context(self.bound_kwargs)
 
-            try:
-                rendered_text = await self._compiled_template_async.render_async(
-                    **context
+            template_str = self.raw_template
+            if self._parent_template and "{{ super() }}" in template_str:
+                template_str = template_str.replace(
+                    "{{ super() }}", self._parent_template
                 )
+
+            jinja_env_async = jinja2.Environment(
+                undefined=jinja2.Undefined, enable_async=True
+            )
+            safe_template, safe_context = _prepare_safe_template(
+                template_str, context, jinja_env_async
+            )
+
+            try:
+                compiled = jinja_env_async.from_string(safe_template)
+                rendered_text = await compiled.render_async(**safe_context)
             except Exception as exc:
-                raise RuntimeError(
-                    f"Failed to async-render prompt '{self.name}': {exc}"
-                ) from exc
+                import warnings
+
+                warnings.warn(
+                    f"DynaPrompt: Async rendering prompt '{self.name}' "
+                    f"encountered error: {exc}. Keeping raw template.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                rendered_text = template_str
 
             final_config = {**self.metadata, **self._overrides}
             p_hash = self._compute_hash(rendered_text, final_config)

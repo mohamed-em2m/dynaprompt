@@ -8,6 +8,7 @@ Inspired by Dynaconf's LazySettings / Settings separation:
 
 from __future__ import annotations
 
+import inspect
 import os
 import pathlib
 import shutil
@@ -301,34 +302,21 @@ class DynaPrompt:
         self._wrapped: _PromptSettings | None = None
 
         # Capture caller's file to avoid self-loading/infinite loops
-        import inspect
 
         try:
-            # We skip frames that belong to dynaprompt package internals
+            # We skip frames that are inside dynaprompt package directory
             stack = inspect.stack()
             self._caller_file = None
             pkg_dir = pathlib.Path(__file__).parent.resolve()
-            internal_files = {
-                "core.py",
-                "nodes.py",
-                "hooking.py",
-                "secrets.py",
-                "validator.py",
-                "utils.py",
-                "__init__.py",
-            }
             for frame in stack:
                 try:
                     frame_path = pathlib.Path(frame.filename).resolve()
-                    is_internal = (
-                        pkg_dir in frame_path.parents
-                        or frame_path.parent == pkg_dir
-                        or (
-                            frame_path.parent.name == "dynaprompt"
-                            and frame_path.name in internal_files
-                        )
-                    )
-                    if not is_internal:
+                    if (
+                        pkg_dir not in frame_path.parents
+                        and frame_path != pkg_dir
+                        and frame_path.parent.name != "dynaprompt"
+                        and frame_path.name != "core.py"
+                    ):
                         self._caller_file = frame_path
                         break
                 except Exception:
